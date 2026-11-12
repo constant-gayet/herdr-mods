@@ -1,0 +1,6 @@
+{
+  "query": "is:pr is:open archived:false (author:@me OR review-requested:@me)",
+  "me": "your-github-login",
+  "refresh_seconds": 120,
+  "demo": false
+}
