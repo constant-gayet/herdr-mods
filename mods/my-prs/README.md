@@ -4,7 +4,7 @@ Your open GitHub pull requests, and the ones waiting on your review, in the
 [Herdr](https://herdr.dev) desktop app: as a side panel next to **Files** and
 **Changes**, or as a popup.
 
-![The PRs panel next to Files and Changes](docs/panel.png)
+![The PRs panel next to Files and Changes](../../docs/my-prs/panel.png)
 
 *The screenshots use the built-in demo data: the PRs are made up.*
 
@@ -33,7 +33,7 @@ Your own PRs come first, newest first. The list refreshes every 2 minutes.
 
 In a narrow panel the rows fold onto two lines:
 
-<img src="docs/panel-narrow.png" alt="The panel when narrow: two lines per PR" width="428">
+<img src="../../docs/my-prs/panel-narrow.png" alt="The panel when narrow: two lines per PR" width="428">
 
 ## Requirements
 
@@ -48,7 +48,8 @@ The folder must be named `my-prs`: the mod loads its icons from
 `mods/my-prs/`.
 
 ```sh
-git clone https://github.com/constant-gayet/herdr-pr-panel ~/.config/herdr-app/mods/my-prs
+git clone https://github.com/constant-gayet/herdr-mods
+cp -r herdr-mods/mods/my-prs ~/.config/herdr-app/mods/my-prs
 herdr-app check ~/.config/herdr-app/mods/my-prs
 ```
 
@@ -64,7 +65,7 @@ Add a key to `~/.config/herdr-app/keys.json`:
 
 The key opens the popup and closes it again; so does `esc`.
 
-![The popup](docs/popup.png)
+![The popup](../../docs/my-prs/popup.png)
 
 ### As a side panel next to Files and Changes
 
