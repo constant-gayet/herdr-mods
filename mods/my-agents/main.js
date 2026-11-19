@@ -1,8 +1,13 @@
 // Agents in grouped or priority views; parents take their most urgent sub-agent's place.
+//
+// my-agents: a finished agent stays unread (shown as Done) until you answer it (it goes
+// back to working) or mark it read: click its dot, "my-agents.toggle-read" on the focused
+// agent, or "my-agents.read-all". Looking at it is not reading it: herdr-core turns done
+// into idle as soon as its pane is shown, so the unread set is kept here, on top of it.
 
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { agents, terminals, panes, focused, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout } from "herdr";
+import { agents, terminals, panes, focused, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout, nextCommand } from "herdr";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -64,6 +69,14 @@ const sortOf = () => SORTS.find((s) => s.id === shared("agents.sort")) ?? SORTS[
 const SECTION = { 4: "Needs you", 3: "Done", 2: "Working", 1: "Idle" };
 const SECTION_STATUS = { 4: "blocked", 3: "done", 2: "working" };
 
+// Unread agents, shared by every copy (one per window) and kept across restarts.
+const UNREAD = "my-agents.unread";
+const unreadSet = () => {
+  const v = shared(UNREAD);
+  return new Set(Array.isArray(v) ? v.filter((x) => typeof x === "string") : []);
+};
+const saveUnread = (set) => setShared(UNREAD, [...set].sort());
+
 function duration(ms) {
   const m = Math.floor(ms / 60000);
   if (m < 1) return "<1m";
@@ -90,6 +103,52 @@ export default class Agents extends View {
     if (!this.pendingPins.length) localStorage.removeItem("pins");
     this.migratingPins = new Set();
     cx.timer.every(30000, (cx) => cx.notify());
+    // Each agent's status at the last render, to see it finish.
+    this.last = new Map();
+    cx.spawn(async (cx) => {
+      for (;;) {
+        const c = String(await nextCommand()).split(".").pop();
+        if (c === "toggle-read") this.toggleRead(focused()?.agent);
+        else if (c === "read") this.setRead(focused()?.agent, true);
+        else if (c === "read-all") saveUnread(new Set());
+        cx.notify();
+      }
+    });
+  }
+
+  setRead(address, read) {
+    if (!address) return;
+    const set = unreadSet();
+    if (read === !set.has(address)) return;
+    read ? set.delete(address) : set.add(address);
+    saveUnread(set);
+  }
+
+  toggleRead(address) {
+    if (address) this.setRead(address, unreadSet().has(address));
+  }
+
+  // Marks agents that finish unread and agents that move again read. One that
+  // finishes in front of you (working straight to idle, focused) was read as it ended.
+  // Returns the unread set, pruned of agents whose terminal is gone.
+  trackUnread(list, all) {
+    const set = unreadSet();
+    let dirty = false;
+    for (const a of list) {
+      const prev = this.last.get(a.address);
+      this.last.set(a.address, a.status);
+      if (prev === a.status) continue;
+      const finished = a.status === "done" || (a.status === "idle" && prev === "working" && !a.focused);
+      if (finished && !set.has(a.address)) { set.add(a.address); dirty = true; }
+      if (a.status === "working" && set.delete(a.address)) dirty = true;
+    }
+    // Right after a start the lists are empty: prune only against a loaded one.
+    if (all.length) {
+      const live = new Set(all.filter((t) => t.state === "live").map((t) => t.address));
+      for (const addr of set) if (!live.has(addr)) { set.delete(addr); dirty = true; }
+    }
+    if (dirty) saveUnread(set);
+    return set;
   }
 
   // Stamps agents whose state changed. Done and idle count as one: looking at a
@@ -205,6 +264,25 @@ export default class Agents extends View {
       .child(this.status(t, { status: st }, compact));
   }
 
+  // The status, and on an unread agent a click that marks it read.
+  readable(t, a, compact) {
+    const st = this.status(t, a, compact);
+    if (!a.unread) return st;
+    return div()
+      .id(`read-${a.address}`)
+      .flex_none()
+      .rounded(4)
+      .cursor_pointer()
+      .hover((s) => s.bg(t.hover))
+      .tooltip("Mark read")
+      .on_click((_e, cx) => {
+        cx.stop_propagation();
+        this.setRead(a.address, true);
+        cx.notify();
+      })
+      .child(st);
+  }
+
   // compact: a ! for blocked where a header already says "Needs you".
   status(t, a, compact = false) {
     const color = t[a.status] ?? t.dim;
@@ -221,9 +299,11 @@ export default class Agents extends View {
     if (props()?.sortMenu) return this.sortMenu(t);
     const collapsed = narrow();
     const sort = sortOf();
-    let list = agents();
-    this.listed = new Map(list.map((a) => [a.address, a.status]));
     const all = terminals();
+    const unread = this.trackUnread(agents(), all);
+    // An unread agent reads as done whatever the core says, until it moves again.
+    let list = agents().map((a) => (unread.has(a.address) && a.status === "idle" ? { ...a, status: "done", unread: true } : { ...a, unread: unread.has(a.address) }));
+    this.listed = new Map(list.map((a) => [a.address, a.status]));
     this.migratePins(all);
     const shown = focused()?.agent;
     const now = Date.now();
@@ -311,7 +391,7 @@ export default class Agents extends View {
           .hover((s) => s.bg(t.hover))
           .on_click(() => run("pane.focus", { pane: a.pane }))
           .child(div().flex_1().min_w(0).whitespace_nowrap().text_right().text_color(t.muted).child(String(i + 1)))
-          .child(h_flex().w(14).flex_none().items_center().justify_center().child(this.status(t, a, true)));
+          .child(h_flex().w(14).flex_none().items_center().justify_center().child(this.readable(t, a, true)));
       }
       const when = this.since(a);
       const idle = a.status === "idle" && !a.focused;
@@ -367,7 +447,7 @@ export default class Agents extends View {
         .when(subs.length > 0, el => el.child(fold(a, subs)))
         .when(this.hovered === a.address, el => el.child(pin))
         .when(this.hovered !== a.address && Boolean(when), el => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - when))))
-        .child(this.status(t, a, byPriority && !isPinned));
+        .child(this.readable(t, a, byPriority && !isPinned));
     };
 
     // Groups in list order: spaces (grouped) or priority sections. Agents of a
@@ -403,6 +483,22 @@ export default class Agents extends View {
         .child(div().truncate().text_color(t[g.status] ?? t.dim).child(g.label))
         .when(byPriority || !open, (el) => el.child(div().text_color(t.dim).child(String(g.members.length))))
         .child(div().flex_1())
+        .when(g.status === "done" && g.members.some((a) => a.unread), (el) => el.child(
+          div()
+            .id(`${g.id}-read`)
+            .p(2)
+            .rounded(4)
+            .text_color(t.dim)
+            .hover((s) => s.bg(t.hover).text_color(t.foreground))
+            .tooltip("Mark all read")
+            .on_click((_e, cx) => {
+              cx.stop_propagation();
+              const set = unreadSet();
+              for (const a of g.members) set.delete(a.address);
+              saveUnread(set);
+              cx.notify();
+            })
+            .child(svg("mods/workspace-chrome/check.svg").size(12).flex_none())))
         .when(!open, (el) => el
           .when(!byPriority && top && top !== "idle", (el) => el.child(this.status(t, { status: top }, true)))
           .child(svg("mods/workspace-chrome/chevron-right.svg").size(11).flex_none().text_color(t.dim)));
