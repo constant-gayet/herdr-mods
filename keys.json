@@ -61,7 +61,9 @@
     "shift-f2": "space.rename",
     "alt-shift-down": "space.next",
     "alt-shift-up": "space.prev",
-    "ctrl-shift-g": "tabs-prs.toggle-prs"
+    "ctrl-shift-g": "tabs-prs.toggle-prs",
+    "alt-r": "my-agents.toggle-read",
+    "alt-shift-r": "my-agents.read-all"
   },
   "terminal": {
     "ctrl-backspace": "send:\u0017",
